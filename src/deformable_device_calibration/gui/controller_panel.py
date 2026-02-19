@@ -61,7 +61,7 @@ class ControlPanel(QWidget):
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Bin')), self.QSpinBox_cmos_coordinate_bin)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Gain')), self.QSpinBox_cmos_gain)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Clean / s')), self.QDoubleSpinBox_cmos_t_clean)
-        cmos_scroll_layout.addRow(cw.LabelWidget(str('Exposure / s')), self.QDoubleSpinBox_cmos_t_exposure)
+        cmos_scroll_layout.addRow(cw.LabelWidget(str('Exposure / ms')), self.QDoubleSpinBox_cmos_t_exposure)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Standby / s')), self.QDoubleSpinBox_cmos_t_standby)
 
         self.QRadioButton_laser_405 = cw.RadioButtonWidget('405 nm')

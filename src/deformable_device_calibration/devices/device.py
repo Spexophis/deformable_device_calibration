@@ -6,7 +6,6 @@ from deformable_device_calibration import logger
 from . import alpao_dm
 from . import cobolt_laser
 from . import flir_cmos
-from . import ni_daq
 
 
 class DeviceManager:
@@ -26,10 +25,6 @@ class DeviceManager:
         except Exception as e:
             self.logg.error(f"{e}")
         try:
-            self.daq = ni_daq.NIDAQ(logg=self.logg)
-        except Exception as e:
-            self.logg.error(f"{e}")
-        try:
             self.dfm = alpao_dm.DeformableMirror(logg=self.logg, config=self.config, path=self.data_folder, cfn=self.cf)
         except Exception as e:
             self.logg.error(f"{e}")
@@ -43,10 +38,6 @@ class DeviceManager:
             self.logg.error(f"{e}")
         try:
             self.laser.close()
-        except Exception as e:
-            self.logg.error(f"{e}")
-        try:
-            self.daq.close()
         except Exception as e:
             self.logg.error(f"{e}")
         try:

@@ -4,7 +4,7 @@
 
 
 from deformable_device_calibration import logger
-from . import shwfs_reconstruction
+from . import shwfs_reconstruction, interferometry_reconstruction
 
 
 class ComputationManager:

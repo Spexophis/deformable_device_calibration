@@ -498,29 +498,27 @@ class CommandExecutor(QObject):
             self.logg.error(f'Error creating influence function directory: {er}')
             return
         try:
-            amps = np.arange(-0.2, 0.201, 0.01)
+            amps = [-0.12, -0.06, 0.0, 0.06, 0.12]
             self.devs.camera.start_live()
             time.sleep(0.032)
             for i in range(self.devs.dfm.n_actuator):
 
                 shimg = []
                 self.vw.dialog_text.setText(f"actuator {i}")
-                values = [0.] * self.devs.dfm.n_actuator
-                self.devs.dfm.set_dm(values)
-                time.sleep(0.4)
-                temp = self.devs.camera.get_buffered_images()
-                temp = np.average(temp, axis=0)
-                shimg.append(temp)
 
                 for a in amps:
+                    values = [0.] * self.devs.dfm.n_actuator
+                    self.devs.dfm.set_dm(values)
+                    time.sleep(0.1)
                     values[i] = a
                     self.devs.dfm.set_dm(values)
                     time.sleep(0.4)
-                    temp = self.devs.camera.get_buffered_images()
-                    temp = np.average(temp, axis=0)
+                    temp = self.devs.camera.get_last_image()
+                    # temp = np.average(temp, axis=0)
                     shimg.append(temp)
 
-                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.01) + '_range_' + str(2) + '.tif',
+                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.06) + '_range_' + str(
+                    0.2) + '_interferometry.tif',
                            np.asarray(shimg))
         except Exception as e:
             self.logg.error(f"Error running influence function: {e}")
@@ -528,9 +526,8 @@ class CommandExecutor(QObject):
             return
         try:
             self.vw.dialog_text.setText(f"computing influence function")
-            dmn = self.ao_panel.QComboBox_dms.currentText()
-            self.sh_wfr.generate_influence_matrices(amps, data_folder=fd, dm=self.devs.dfm, sv=self.config,
-                                                    cfd=self.cfd)
+            self.int_wfr.generate_influence_matrices(amps, data_folder=fd, dm=self.devs.dfm, sv=self.config,
+                                                     cfd=self.cfd)
         except Exception as e:
             self.logg.error(f"Error computing influence function: {e}")
             self.stop_wfs()

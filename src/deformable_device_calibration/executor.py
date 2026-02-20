@@ -9,7 +9,7 @@ import time
 import numpy as np
 import pandas as pd
 import tifffile as tf
-from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, QTimer, Qt
+from PyQt6.QtCore import QObject, pyqtSlot, pyqtSignal, Qt
 
 from . import run_threads, logger
 from .utilities import image_processor as ipr
@@ -27,8 +27,8 @@ class CommandExecutor(QObject):
         self.ctrl_panel = self.vw.ctrl_panel
         self.viewer = self.vw.viewer
         self.ao_panel = self.vw.ao_panel
-        self.intwfr = cmp.intwfr
-        self.shwfr = cmp.shwfr
+        self.int_wfr = cmp.int_wfr
+        self.sh_wfr = cmp.sh_wfr
         self.path = path
         self.config = config
         self.cfd = cf
@@ -54,18 +54,17 @@ class CommandExecutor(QObject):
         self.ao_panel.Signal_set_dm_flat.connect(self.set_dm_flat)
         self.ao_panel.Signal_update_cmd.connect(self.update_dm)
         self.ao_panel.Signal_save_dm.connect(self.save_dm)
-        self.ao_panel.Signal_influence_function.connect(self.run_influence_function)
         # WFS
         self.ao_panel.Signal_img_shwfs_base.connect(self.set_reference_wf)
-        self.ao_panel.Signal_img_wfs.connect(self.wfs)
-        self.ao_panel.Signal_img_wfr_run.connect(self.run_img_wfr)
-        self.ao_panel.Signal_img_shwfs_compute_wf.connect(self.run_wf_decomposition)
+        self.ctrl_panel.Signal_img_wfs.connect(self.wfs)
+        self.ctrl_panel.Signal_img_wfr.connect(self.wfr)
+        self.ctrl_panel.Signal_img_wfc.connect(self.run_wf_decomposition)
         self.zsv.connect(self.save_zernike_coef)
-        self.ao_panel.Signal_img_shwfs_save_wf.connect(self.save_img_wf)
+        self.ctrl_panel.Signal_wf_save.connect(self.save_img_wf)
         # AO
-        self.ao_panel.Signal_sensorlessAO_run.connect(self.run_sensorless_iteration)
-        self.ao_panel.Signal_img_shwfs_correct_wf.connect(self.run_close_loop_iteration)
-        self.ao_panel.Signal_sensorAO_run.connect(self.run_wfs_iteration)
+        self.ctrl_panel.Signal_influence_function.connect(self.run_influence_function)
+        self.ctrl_panel.Signal_img_wf_correct.connect(self.run_close_loop_iteration)
+        self.ctrl_panel.Signal_sensor_iteration.connect(self.run_wfs_iteration)
         self.sig_plt.connect(self.plot_curve)
 
     def _initial_setup(self):
@@ -114,11 +113,11 @@ class CommandExecutor(QObject):
 
     def set_camera_roi(self):
         try:
-            expo = self.ao_panel.get_cmos_exposure()
+            expo = self.ctrl_panel.get_cmos_exposure()
             self.devs.camera.t_exposure = expo * 1000
-            gain = self.ao_panel.get_cmos_gain()
+            gain = self.ctrl_panel.get_cmos_gain()
             self.devs.camera.gain = gain
-            x, y, nx, ny, bn = self.ao_panel.get_cmos_roi()
+            x, y, nx, ny, bn = self.ctrl_panel.get_cmos_roi()
             self.devs.camera.pixels_x = nx
             self.devs.camera.start_h = x
             self.devs.camera.pixels_y = ny
@@ -205,6 +204,12 @@ class CommandExecutor(QObject):
         except Exception as e:
             self.logg.error(f"DM Error: {e}")
 
+    def prepare_wfs(self, md):
+        self.set_camera_roi()
+        self.devs.camera.prepare_live()
+        self.viewer.switch_camera(self.devs.camera.pixels_y, self.devs.camera.pixels_x)
+        self.set_img_wfs(md)
+
     def set_img_wfs(self, md):
         if md == "Interferometry":
             self.set_int_wfs()
@@ -212,23 +217,17 @@ class CommandExecutor(QObject):
             self.set_sh_wfs()
         else:
             self.logg.error(f"Unknown Influence Function Type: {md}")
-            
+
     def set_int_wfs(self):
         parameters = self.ao_panel.get_parameters_int()
-        self.intwfr.update_parameters(parameters)
+        self.int_wfr.update_parameters(parameters)
         self.logg.info('Interferometry parameter updated')
 
     def set_sh_wfs(self):
         parameters = self.ao_panel.get_parameters_foc()
-        self.shwfr.pixel_size = 3.45 / 1000
-        self.shwfr.update_parameters(parameters)
+        self.sh_wfr.pixel_size = 3.45 / 1000
+        self.sh_wfr.update_parameters(parameters)
         self.logg.info('SHWFS parameter updated')
-
-    def prepare_wfs(self, md):
-        self.set_camera_roi()
-        self.devs.camera.prepare_live()
-        self.viewer.switch_camera(self.devs.camera.pixels_y, self.devs.camera.pixels_x)
-        self.set_img_wfs(md)
 
     @pyqtSlot(bool, str)
     def wfs(self, sw: bool, md: str):
@@ -243,7 +242,7 @@ class CommandExecutor(QObject):
         else:
             self.stop_wfs()
             if self.viewer.wfr_mode:
-                self.run_img_wfr(False)
+                self.wfr(False, )
 
     def start_wfs(self):
         try:
@@ -252,7 +251,7 @@ class CommandExecutor(QObject):
             self.logg.info("WFS Started")
         except Exception as e:
             self.logg.error(f"Error starting wfs: {e}")
-            self.stop_video()
+            self.stop_wfs()
             return
 
     def stop_wfs(self):
@@ -265,19 +264,21 @@ class CommandExecutor(QObject):
     @pyqtSlot()
     def set_reference_wf(self):
         try:
-            self.shwfr.ref = self.devs.camera.get_last_image()
+            self.sh_wfr.ref = self.devs.camera.get_last_image()
             self.logg.info('shwfs base set')
         except Exception as e:
             self.logg.error(f"Error setting shwfs base: {e}")
 
     @pyqtSlot(bool, str)
-    def run_img_wfr(self, on: bool, md: str):
+    def wfr(self, on: bool, md: str):
         if on:
             if md == "Interferometry":
-                wfr = self.intwfr
+                wfr = self.int_wfr
+                self.logg.info(f"WFS Set to: {md}")
             elif md == "ShackHartmann":
-                wfr = self.shwfr
-                self.shwfr.method = self.ao_panel.get_gradient_method_img()
+                wfr = self.sh_wfr
+                self.sh_wfr.method = self.ao_panel.get_gradient_method_img()
+                self.logg.info(f"WFS Set to: {md}")
             else:
                 wfr = None
                 self.logg.error(f"Unknown Influence Function Type: {md}")
@@ -288,7 +289,7 @@ class CommandExecutor(QObject):
                 self.viewer.wfr_worker.start()
                 self.viewer.wfr_mode = True
         else:
-            self._cleanup_psr_worker()
+            self._cleanup_wfr_worker()
             self.viewer.wfr_mode = False
 
     def _cleanup_wfr_worker(self):
@@ -304,9 +305,6 @@ class CommandExecutor(QObject):
             except TypeError:
                 pass  # Already disconnected
 
-            # Clear data references
-            worker.clear_data()
-
             # Delete worker
             worker.deleteLater()  # Qt will delete when safe
             self.viewer.wfr_worker = None
@@ -317,8 +315,8 @@ class CommandExecutor(QObject):
         except Exception as e:
             self.logg.error(f"SHWFS Wavefront Show Error: {e}")
 
-    @pyqtSlot(bool)
-    def run_wf_decomposition(self, on: bool):
+    @pyqtSlot(bool, str)
+    def run_wf_decomposition(self, on: bool, md: str):
         if on:
             self.viewer.wfr_decomp = True
         else:
@@ -334,21 +332,24 @@ class CommandExecutor(QObject):
             file_path = os.path.join(self.path, time.strftime("%Y%m%d%H%M%S"))
         df.to_excel(file_path + '_zernike_coefficients.xlsx', index=False)
 
-    @pyqtSlot()
-    def save_img_wf(self):
+    @pyqtSlot(str)
+    def save_img_wf(self, md: str):
         fn = self.vw.get_file_dialog()
         if fn is not None:
             file_name = os.path.join(self.path, time.strftime("%Y%m%d%H%M%S") + "_" + fn)
         else:
             file_name = os.path.join(self.path, time.strftime("%Y%m%d%H%M%S"))
-        self.shwfr.save_wfs_results(file_name, self.devs.dfm)
+        if md == "Interferometry":
+            self.int_wfr.save_wfs_results(file_name, self.devs.dfm)
+        elif md == "ShackHartmann":
+            self.sh_wfr.save_wfs_results(file_name, self.devs.dfm)
 
     def close_loop_correction(self, n, md, fnd):
-        data = [self.shwfr.ref]
+        data = [self.sh_wfr.ref]
         for i in range(n):
-            self.shwfr.meas = self.devs.camera.get_last_image()
-            data.append(self.shwfr.meas)
-            gdx, gdy = self.shwfr.get_gradient_xy()
+            self.sh_wfr.meas = self.devs.camera.get_last_image()
+            data.append(self.sh_wfr.meas)
+            gdx, gdy = self.sh_wfr.get_gradient_xy()
             self.devs.dfm.get_correction((gdx, gdy), md)
             self.devs.dfm.set_dm(self.devs.dfm.dm_cmd[-1])
             self.ao_panel.update_cmd_index()
@@ -390,8 +391,8 @@ class CommandExecutor(QObject):
             time.sleep(0.064)
             img = self.devs.camera.get_last_image()
             ims.append(img)
-            self.shwfr.meas = img
-            gdx, gdy = self.shwfr.get_gradient_xy()
+            self.sh_wfr.meas = img
+            gdx, gdy = self.sh_wfr.get_gradient_xy()
             temp = ipr.get_eigen_coefficients(np.concatenate((gdx.flatten(), gdy.flatten())), self.devs.dfm.zslopes, 14)
             zns.append(np.abs(temp[zn]))
         return ims, zns
@@ -418,9 +419,9 @@ class CommandExecutor(QObject):
             self.devs.dfm.set_dm(cmd)
             mode_start, mode_stop, _, amp_step, amp_step_number = self.ao_panel.get_sensorless_iteration()
             md = self.ao_panel.get_img_wfs_method()
-            self.shwfr.meas = self.devs.camera.get_last_image()
-            data = [self.shwfr.ref, self.shwfr.meas]
-            gdx, gdy = self.shwfr.get_gradient_xy()
+            self.sh_wfr.meas = self.devs.camera.get_last_image()
+            data = [self.sh_wfr.ref, self.sh_wfr.meas]
+            gdx, gdy = self.sh_wfr.get_gradient_xy()
             zcs = ipr.get_eigen_coefficients(np.concatenate((gdx.flatten(), gdy.flatten())), self.devs.dfm.zslopes, 14)
             self.sig_plt.emit(np.arange(zcs.size), zcs)
             amp_starts = [- zc - amp_step * int(amp_step_number / 2) for zc in zcs]
@@ -432,7 +433,8 @@ class CommandExecutor(QObject):
                 self.vw.dialog_text.setText(f"Zernike mode #{mode}")
                 amp_range = [amp_starts[mode] + step_number * amp_step for step_number in range(amp_step_number)]
                 labels = ["zm%0.2d_amp%.4f" % (mode, amp) for amp in amp_range]
-                cmds = [self.devs.dfm.cmd_add(self.devs.dfm.get_zernike_cmd(mode, amp, method=md), cmd) for amp in amp_range]
+                cmds = [self.devs.dfm.cmd_add(self.devs.dfm.get_zernike_cmd(mode, amp, method=md), cmd) for amp in
+                        amp_range]
                 images, zma = self.sensor_iteration(mode, cmds)
                 self.sig_plt.emit(amp_range, zma)
                 pm = ipr.valley_find(amp_range, zma)
@@ -511,7 +513,6 @@ class CommandExecutor(QObject):
                 shimg.append(temp)
 
                 for a in amps:
-
                     values[i] = a
                     self.devs.dfm.set_dm(values)
                     time.sleep(0.4)
@@ -519,7 +520,8 @@ class CommandExecutor(QObject):
                     temp = np.average(temp, axis=0)
                     shimg.append(temp)
 
-                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.01) + '_range_' + str(2) + '.tif', np.asarray(shimg))
+                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.01) + '_range_' + str(2) + '.tif',
+                           np.asarray(shimg))
         except Exception as e:
             self.logg.error(f"Error running influence function: {e}")
             self.stop_wfs()
@@ -527,7 +529,8 @@ class CommandExecutor(QObject):
         try:
             self.vw.dialog_text.setText(f"computing influence function")
             dmn = self.ao_panel.QComboBox_dms.currentText()
-            self.shwfr.generate_influence_matrices(amps, data_folder=fd, dm=self.devs.dfm, sv=self.config, cfd=self.cfd)
+            self.sh_wfr.generate_influence_matrices(amps, data_folder=fd, dm=self.devs.dfm, sv=self.config,
+                                                    cfd=self.cfd)
         except Exception as e:
             self.logg.error(f"Error computing influence function: {e}")
             self.stop_wfs()
@@ -563,7 +566,6 @@ class CommandExecutor(QObject):
                 shimg.append(temp)
 
                 for a in amps:
-
                     values[i] = a
                     self.devs.dfm.set_dm(values)
                     time.sleep(0.4)
@@ -571,7 +573,8 @@ class CommandExecutor(QObject):
                     temp = np.average(temp, axis=0)
                     shimg.append(temp)
 
-                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.01) + '_range_' + str(2) + '.tif', np.asarray(shimg))
+                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.01) + '_range_' + str(2) + '.tif',
+                           np.asarray(shimg))
         except Exception as e:
             self.logg.error(f"Error running influence function: {e}")
             self.stop_wfs()
@@ -579,7 +582,8 @@ class CommandExecutor(QObject):
         try:
             self.vw.dialog_text.setText(f"computing influence function")
             dmn = self.ao_panel.QComboBox_dms.currentText()
-            self.shwfr.generate_influence_matrices(amps, data_folder=fd, dm=self.devs.dfm, sv=self.config, cfd=self.cfd)
+            self.sh_wfr.generate_influence_matrices(amps, data_folder=fd, dm=self.devs.dfm, sv=self.config,
+                                                    cfd=self.cfd)
         except Exception as e:
             self.logg.error(f"Error computing influence function: {e}")
             self.stop_wfs()

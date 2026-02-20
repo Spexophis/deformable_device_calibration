@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 Peter Kner, Ruizhe Lin
+# Copyright (c) 2025 Ruizhe Lin
 # Licensed under the MIT License.
 
 
@@ -9,25 +9,25 @@ import time
 
 import numpy as np
 import tifffile as tf
-from scipy.signal import fftconvolve as corr
-from skimage.filters import threshold_otsu
+from numpy.fft import fft2, ifft2, fftshift
+from skimage.restoration import unwrap_phase
+
 from deformable_device_calibration import logger
 from deformable_device_calibration.utilities import image_processor as ipr
 from deformable_device_calibration.utilities import zernike_generator as tz
-
-fft2 = np.fft.fft2
-ifft2 = np.fft.ifft2
-fftshift = np.fft.fftshift
-pi = np.pi
 
 
 class WavefrontSensing:
 
     def __init__(self, logg=None):
         self.logg = logg or logger.setup_logging()
-        self.x_center = 816
-        self.y_center = 827
-        self.radius = 512
+        self.fx_center: int = 816
+        self.fy_center: int = 827
+        self.half_nx: int = 128
+        self.half_ny: int = 128
+        self.radius: int = 128
+        self.msk_hdl: bool = False
+        self.wrp_hdl: bool = False
         self._meas = None
         self.wf = None
 
@@ -46,25 +46,35 @@ class WavefrontSensing:
         self._meas = new_meas
 
     def update_parameters(self, parameters):
-        self.x_center = parameters[0]
-        self.y_center = parameters[1]
-        self.radius = parameters[2]
+        self.fx_center = parameters[0]
+        self.fy_center = parameters[1]
+        self.half_nx = parameters[2]
+        self.half_ny = parameters[3]
+        self.radius = parameters[4]
+        self.msk_hdl = parameters[5]
+        self.wrp_hdl = parameters[6]
 
-    def wavefront_reconstruction(self, md='correlation'):
-        self.gradx, self.grady = self.get_gradient_xy(mtd=md)
-        self.wf = self.gradient_to_wavefront(self.gradx, self.grady)
+    def wavefront_reconstruction(self):
+        imf = fftshift(fft2(self.meas))
+        cf = imf[self.fy_center - self.half_ny: self.fy_center + self.half_ny, self.fx_center - self.half_nx:self.fx_center + self.half_nx]
+        ph = ifft2(fftshift(cf))
+        if self.msk_hdl:
+            msk = self._elliptical_mask((self.radius, self.radius), cf.shape)
+        else:
+            msk = 1
+        phase = np.arctan2(ph.imag, ph.real) * msk
+        if self.wrp_hdl:
+            self.wf = unwrap_phase(phase)
+        else:
+            self.wf = phase
 
     def save_wfs_results(self, file_name, dm):
         try:
-            tf.imwrite(file_name + f'_{dm.dm_serial}_wfs_raw.tif', self.meas)
+            tf.imwrite(file_name + f'_{dm.dm_serial}_int_wfs_raw.tif', self.meas)
         except Exception as e:
-            self.logg.error(f"Error saving wfs: {e}")
+            self.logg.error(f"Error saving wfs raw image: {e}")
         try:
-            tf.imwrite(file_name + f'_{dm.dm_serial}_wf.tif', self.im)
-        except Exception as e:
-            self.logg.error(f"Error saving wfs processed images: {e}")
-        try:
-            tf.imwrite(file_name + f'_{dm.dm_serial}_recon_wf.tif', self.wf)
+            tf.imwrite(file_name + f'_{dm.dm_serial}_int_recon_wf.tif', self.wf)
         except Exception as e:
             self.logg.error(f"Error saving wfs wavefront: {e}")
 

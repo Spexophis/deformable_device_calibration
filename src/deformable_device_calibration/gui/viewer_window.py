@@ -266,10 +266,6 @@ class LiveViewer(QWidget):
         self.graph_img_item_0.setImage(frame_u16, autoLevels=(levels is None))
         if levels is not None:
             self.graph_img_item_0.setLevels(levels)
-        # self.data_curve_0.setData(amp_lst)
-
-    def set_plot_1(self, n):
-        self.QComboBox_plot_selection.setCurrentIndex(n)
 
     def plot_trace(self, y, x=None, overlay=False):
         y = np.asarray(y)

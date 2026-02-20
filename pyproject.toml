@@ -1,7 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "deformable-device-calibration"
-version = "0.1.0"
-description = "Add your description here"
+name = "deformable_device_calibration"
+version = "1.0.0"
+description = "deformable_device_calibration"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.10"
+dependencies = [
+    "imagingcontrol4>=1.4.0.3240",
+    "matplotlib>=3.10.8",
+    "nidaqmx>=1.3.0",
+    "numpy>=2.2.6",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.3",
+    "pycobolt",
+    "pyopengl>=3.1.10",
+    "pyopengl-accelerate>=3.1.10",
+    "pyqt6>=6.9.1",
+    "pyqtgraph>=0.14.0",
+    "scikit-image>=0.25.2",
+    "scikit-learn>=1.7.2",
+    "tifffile>=2025.5.10",
+    "xlsxwriter>=3.2.9",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+pycobolt = { git = "https://github.com/cobolt-lasers/pycobolt.git" }

@@ -12,8 +12,8 @@ class ComputationManager:
         self.config = config
         self.logg = logg or logger.setup_logging()
         self.data_folder = path
-        self.shwfr = shwfs_reconstruction.WavefrontSensing(logg=self.logg)
-        self.intwfr = interferometry_reconstruction.WavefrontSensing(logg=self.logg)
+        self.sh_wfr = shwfs_reconstruction.WavefrontSensing(logg=self.logg)
+        self.int_wfr = interferometry_reconstruction.WavefrontSensing(logg=self.logg)
 
     @staticmethod
     def setup_logging():

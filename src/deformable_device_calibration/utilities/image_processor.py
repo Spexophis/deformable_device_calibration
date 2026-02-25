@@ -96,18 +96,16 @@ def valley_find(x, y):
 #  Matrix decomposition
 # ══════════════════════════════════════════════════════════════════════
 
-def pseudo_inverse(A, n=32):
-    u, s, vt = np.linalg.svd(A)
-    s_inv = np.zeros_like(A.T)
-    if n is None:
-        s_inv[:min(A.shape), :min(A.shape)] = np.diag(1 / s[:min(A.shape)])
-    else:
-        s_inv[:n, :n] = np.diag(1 / s[:n])
-    return vt.T @ s_inv @ u.T
+def pseudo_inverse(influence_matrix, n_modes_kept=64):
+    U, sv, Vt = np.linalg.svd(influence_matrix, full_matrices=False)
+    sv_inv = np.zeros_like(sv)
+    sv_inv[:n_modes_kept] = 1.0 / sv[:n_modes_kept]
+    C_inv = (Vt[:n_modes_kept].T * sv_inv[:n_modes_kept]) @ U[:, :n_modes_kept].T
+    return C_inv
 
 
 def get_eigen_coefficients(mta, mtb, ng=32):
-    mp = pseudo_inverse(mtb, n=ng)
+    mp = pseudo_inverse(mtb, n_modes_kept=ng)
     return np.matmul(mp, mta)
 
 

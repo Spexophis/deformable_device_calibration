@@ -7,6 +7,7 @@ import threading
 import time
 import traceback
 from collections import deque
+from dataclasses import dataclass, field
 
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot
@@ -126,6 +127,26 @@ class WFRWorker(QThread):
         except Exception as e:
             import logging
             logging.error(f"WFRWorker error: {e}")
+
+
+@dataclass
+class WFSLoopConfig:
+    gain:               float = 0.5    # integrator gain  (0 < g ≤ 1)
+    n_iterations:       int   = 32
+    convergence_rms:    float = 0.05   # stop when WF RMS < this [rad]
+    v_min:              float = -1.0
+    v_max:              float =  1.0
+    leaky_gain:         float = 1.0    # set < 1 to add leaky integration
+
+
+@dataclass
+class WFSLoopResult:
+    voltages:       np.ndarray
+    rms_history:    list[float] = field(default_factory=list)
+    pv_history:     list[float] = field(default_factory=list)
+    strehl_history:     list[float] = field(default_factory=list)
+    converged:      bool = False
+    n_iterations:   int  = 0
 
 
 class TaskWorker(QThread):

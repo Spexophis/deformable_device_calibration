@@ -3,7 +3,6 @@
 # Licensed under the MIT License.
 
 
-import csv
 import json
 import os
 import struct
@@ -15,7 +14,6 @@ import pandas as pd
 import tifffile as tf
 
 from deformable_device_calibration import logger
-from deformable_device_calibration.computations import dynamic_controller as dc
 from deformable_device_calibration.utilities import image_processor as ipr
 from deformable_device_calibration.utilities import zernike_generator as tz
 
@@ -42,8 +40,6 @@ class DeformableMirror:
             self._get_zernike()
         else:
             raise RuntimeError(f"Error Initializing DM {self.dm_name}")
-        # self.ctrl = dc.DynamicControl(n_states=self.n_zernike, n_inputs=self.n_zernike, n_outputs=self.n_zernike,
-        #                               calib=self.ctrl_calib)
         self.g = 0.5
         try:
             self.set_dm(self.dm_cmd[self.current_cmd])
@@ -120,32 +116,8 @@ class DeformableMirror:
             for j in range(self.n_zernike):
                 self.zslopes[:self.nlx * self.nly, j] = dZdx_orth[j].flatten()
                 self.zslopes[self.nlx * self.nly:, j] = dZdy_orth[j].flatten()
-            # self.z2c = self._zernike_modes()
         except Exception as e:
             self.logg.error(f"Error Loading DM {self.dm_name} control file: {e}")
-
-    def _zernike_modes(self):
-        """
-        z2c index:
-        0, 1 - tip / tilt
-        2 - defocus
-        3, 4 - astigmatism
-        5, 6 - coma
-        7, 8 - trefoil
-        9 - spherical
-        """
-        pth = r"C:\Program Files\Alpao\SDK\Config"
-        fn = f"{self.dm_serial}-Z2C.csv"
-        Z2C = []
-        with open(os.path.join(pth, fn), newline='') as csvfile:
-            csvrows = csv.reader(csvfile, delimiter=' ')
-            for row in csvrows:
-                x = row[0].split(",")
-                Z2C.append(x)
-        for i in range(len(Z2C)):
-            for j in range(len(Z2C[i])):
-                Z2C[i][j] = float(Z2C[i][j])
-        return Z2C
 
     def close(self):
         self.write_cmd(path=self.dtp, t=time.strftime("%Y%m%d%H%M%S") + '_')
@@ -167,39 +139,23 @@ class DeformableMirror:
         self.dm.Send([0.] * self.n_actuator)
         self.logg.info(f"DM {self.dm_name} set to null")
 
-    def get_correction(self, measurements, method="phase"):
-        if method == 'phase':
-            self.correction.append(list(self.g * self.amp * np.dot(self.control_matrix_phase, -measurements.reshape(self.nls))))
-        else:
-            gradx, grady = measurements
-            measurement = np.concatenate((gradx.reshape(self.nls), grady.reshape(self.nls)))
-            if method == 'zonal':
-                self.correction.append(list(self.g * np.dot(self.control_matrix_zonal, -measurement)))
-            elif method == 'modal':
-                temp = self.get_zernike_coffs(gradx, grady)
-                # a = np.zeros((self.n_zernike, 1))
-                # a[:, 0] = -self.g * temp
-                # _, u = self.ctrl.compute_control(a, False)
-                self.correction.append(list(self.g * np.dot(self.control_matrix_modal, -temp)))
-            else:
-                self.logg.error(f"Invalid AO correction method")
-                return
-        _c = self.cmd_add(self.dm_cmd[self.current_cmd], self.correction[-1])
-        self.dm_cmd.append(_c)
+    def get_int_correction(self, measurement):
+        delta_v = self.control_matrix_phase @ measurement.ravel()
 
-    def get_iterative_correction(self, measurements, method="modal"):
-        if method == 'modal':
-            gradx, grady = measurements
+
+    def get_sh_correction(self, measurements, method="phase"):
+        gradx, grady = measurements
+        measurement = np.concatenate((gradx.reshape(self.nls), grady.reshape(self.nls)))
+        if method == 'zonal':
+            self.correction.append(list(self.g * np.dot(self.control_matrix_zonal, -measurement)))
+        elif method == 'modal':
             temp = self.get_zernike_coffs(gradx, grady)
-            a = np.zeros((self.n_zernike, 1))
-            a[:, 0] = temp
-            # _, u = self.ctrl.compute_control(a, False)
-            self.correction.append(list(np.dot(self.control_matrix_modal, u[:, 0])))
-            _c = self.cmd_add(self.dm_cmd[self.current_cmd], self.correction[-1])
-            self.dm_cmd.append(_c)
+            self.correction.append(list(self.g * np.dot(self.control_matrix_modal, -temp)))
         else:
             self.logg.error(f"Invalid AO correction method")
             return
+        _c = self.cmd_add(self.dm_cmd[self.current_cmd], self.correction[-1])
+        self.dm_cmd.append(_c)
 
     def get_zernike_cmd(self, j, a, method="modal"):
         if method == 'modal':
@@ -245,33 +201,3 @@ class DeformableMirror:
         self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Initial Flat"] = str(fd)
         with open(self.cfn, 'w') as f:
             json.dump(self.config, f, indent=4)
-
-    def save_sensorless_results(self, fd, a, v, p):
-        df1 = pd.DataFrame(v, index=a, columns=['Values'])
-        df2 = pd.DataFrame(p, index=np.arange(self.n_zernike), columns=['Amplitudes'])
-        with pd.ExcelWriter(fd, engine='xlsxwriter') as writer:
-            df1.to_excel(writer, sheet_name='Metric Values')
-            df2.to_excel(writer, sheet_name='Peaks')
-
-    def wavefront_zernike_reconstruct(self, wf, size=None, exclusive=True):
-        return self.wavefront_recomposition(self.wavefront_decomposition(wf), size=size, exclusive=exclusive)
-
-    def wavefront_decomposition(self, wf):
-        za = np.zeros(self.n_zernike)
-        for i in range(self.n_zernike):
-            wz = self.zernike[i]
-            za[i] = (wf * wz.conj()).sum() / (wz * wz.conj()).sum()
-        return za
-
-    def wavefront_recomposition(self, za, size=None, exclusive=True):
-        if size is None:
-            ny = self.nly
-            nx = self.nlx
-        else:
-            ny, nx = size
-        wf = np.zeros((ny, nx))
-        if exclusive:
-            za[:4] = 0
-        for i in range(self.n_zernike):
-            wf += za[i] * self.zernike[i]
-        return wf

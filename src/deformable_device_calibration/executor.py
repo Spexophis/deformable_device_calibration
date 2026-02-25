@@ -114,7 +114,7 @@ class CommandExecutor(QObject):
     def set_camera_roi(self):
         try:
             expo = self.ctrl_panel.get_cmos_exposure()
-            self.devs.camera.t_exposure = expo * 1000
+            self.devs.camera.t_exposure = expo * 1e6
             gain = self.ctrl_panel.get_cmos_gain()
             self.devs.camera.gain = gain
             x, y, nx, ny, bn = self.ctrl_panel.get_cmos_roi()
@@ -274,6 +274,7 @@ class CommandExecutor(QObject):
         if on:
             if md == "Interferometry":
                 wfr = self.int_wfr
+                wfr.prepare_int_reconstruction()
                 self.logg.info(f"WFS Set to: {md}")
             elif md == "ShackHartmann":
                 wfr = self.sh_wfr
@@ -350,7 +351,7 @@ class CommandExecutor(QObject):
             self.sh_wfr.meas = self.devs.camera.get_last_image()
             data.append(self.sh_wfr.meas)
             gdx, gdy = self.sh_wfr.get_gradient_xy()
-            self.devs.dfm.get_correction((gdx, gdy), md)
+            self.devs.dfm.get_sh_correction((gdx, gdy), md)
             self.devs.dfm.set_dm(self.devs.dfm.dm_cmd[-1])
             self.ao_panel.update_cmd_index()
             i = int(self.ao_panel.get_cmd_index())
@@ -474,7 +475,70 @@ class CommandExecutor(QObject):
     @pyqtSlot(str)
     def run_wfs_iteration(self, md):
         self.vw.get_dialog(txt="WFS Iteration")
-        self.run_task(lambda: self.wfs_iteration(md))
+        self.run_task(lambda: self.dm_flatten(md))
+
+    def dm_flatten(self, md):
+        """
+        Closed-loop integrator flattening.
+        The integrator update rule is:
+            v_{k+1} = leaky * v_k  -  gain * C⁺ * wf_k
+        """
+        try:
+            self.prepare_wfs("Interferometry")
+            self.logg.info(f"Finish preparing wfs")
+        except Exception as e:
+            self.logg.error(f"Error preparing wfs: {e}")
+            return
+
+        cfg = run_threads.WFSLoopConfig(gain=0.6, n_iterations=16, convergence_rms=0.1, leaky_gain=1.0)
+        result = run_threads.WFSLoopResult(voltages=np.array(self.devs.dfm.dm_cmd[self.devs.dfm.current_cmd]))
+
+        self.devs.camera.start_live()
+        self.devs.dfm.set_dm(self.devs.dfm.dm_cmd[self.devs.dfm.current_cmd])
+        time.sleep(2)
+
+        for k in range(cfg.n_iterations):
+            self.vw.dialog_text.setText(f"iteration {k}")
+
+            temp = np.zeros((10, self.devs.camera.pixels_y, self.devs.camera.pixels_x), dtype=np.float64)
+            for i in range(10):
+                time.sleep(0.03)
+                temp[i] = self.devs.camera.get_last_image()
+
+            wf = self.int_wfr.compute_wavefront(temp)
+
+            rms = float(np.std(wf))
+            pv = float(wf.max() - wf.min())
+            strehl = np.exp(-rms ** 2)
+            result.rms_history.append(rms)
+            result.pv_history.append(pv)
+            result.strehl_history.append(strehl)
+
+            print(f"  Iter {k + 1:3d}/{cfg.n_iterations}  "
+                  f"RMS={rms:.4f} rad  PV={pv:.4f} rad  Strehl={strehl:.4f}")
+
+            # 2. Convergence check
+            if rms < cfg.convergence_rms:
+                result.converged = True
+                result.n_iterations = k + 1
+                print(f"  Converged at iteration {k + 1}  "
+                      f"(RMS={rms:.4f} < {cfg.convergence_rms:.4f} rad)")
+                break
+
+            # 3. Compute voltage correction and apply
+            delta_v = self.devs.dfm.control_matrix_phase @ wf.ravel()
+            v_new = (cfg.leaky_gain * result.voltages + cfg.gain * delta_v)
+            v_new = np.clip(v_new, cfg.v_min, cfg.v_max)
+
+            try:
+                result.voltages = v_new
+                self.devs.dfm.dm_cmd.append(v_new.tolist())
+                self.ao_panel.update_cmd_index()
+                self.devs.dfm.set_dm(self.devs.dfm.dm_cmd[-1])
+            except Exception as e:
+                self.logg.error(f"DM Error: {e}")
+
+        self.stop_wfs()
 
     def influence_function(self, md):
         if md == "Interferometry":
@@ -498,7 +562,8 @@ class CommandExecutor(QObject):
             self.logg.error(f'Error creating influence function directory: {er}')
             return
         try:
-            amps = [-0.12, -0.06, 0.0, 0.06, 0.12]
+            stp = 0.1
+            amps = [-stp, stp]
             self.devs.camera.start_live()
             time.sleep(0.032)
             for i in range(self.devs.dfm.n_actuator):
@@ -508,18 +573,22 @@ class CommandExecutor(QObject):
 
                 for a in amps:
                     values = [0.] * self.devs.dfm.n_actuator
-                    self.devs.dfm.set_dm(values)
-                    time.sleep(0.1)
                     values[i] = a
                     self.devs.dfm.set_dm(values)
-                    time.sleep(0.4)
-                    temp = self.devs.camera.get_last_image()
-                    # temp = np.average(temp, axis=0)
-                    shimg.append(temp)
+                    time.sleep(0.02)
+                    for _ in range(16):
+                        time.sleep(0.03)
+                        shimg.append(self.devs.camera.get_last_image())
 
-                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.06) + '_range_' + str(
-                    0.2) + '_interferometry.tif',
-                           np.asarray(shimg))
+                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_interferometry.tif',
+                           np.array(shimg))
+            meta_data = {
+                "act amps": amps,
+                "x center": self.int_wfr.fx_center,
+                "y center": self.int_wfr.fy_center
+            }
+            with open(fd + r'/' + 'interferometry_metadata.txt', "w") as f:
+                f.write(str(meta_data))
         except Exception as e:
             self.logg.error(f"Error running influence function: {e}")
             self.stop_wfs()

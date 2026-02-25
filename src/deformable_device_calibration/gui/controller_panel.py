@@ -57,7 +57,7 @@ class ControlPanel(QWidget):
         self.QSpinBox_cmos_coordinate_bin = cw.SpinBoxWidget(0, 2048, 1, 1)
         self.QSpinBox_cmos_gain = cw.SpinBoxWidget(0, 300, 1, 0)
         self.QDoubleSpinBox_cmos_t_clean = cw.DoubleSpinBoxWidget(0, 10, 0.001, 4, 0.009)
-        self.QDoubleSpinBox_cmos_t_exposure = cw.DoubleSpinBoxWidget(0.012, 1000, 0.01, 4, 0.02)
+        self.QDoubleSpinBox_cmos_t_exposure = cw.DoubleSpinBoxWidget(0, 1, 0.01, 4, 0.001)
         self.QDoubleSpinBox_cmos_t_standby = cw.DoubleSpinBoxWidget(0, 10, 0.001, 4, 0.050)
 
         cmos_scroll_layout.addRow(cw.LabelWidget(str('CMOS')))
@@ -69,7 +69,7 @@ class ControlPanel(QWidget):
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Bin')), self.QSpinBox_cmos_coordinate_bin)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Gain')), self.QSpinBox_cmos_gain)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Clean / s')), self.QDoubleSpinBox_cmos_t_clean)
-        cmos_scroll_layout.addRow(cw.LabelWidget(str('Exposure / ms')), self.QDoubleSpinBox_cmos_t_exposure)
+        cmos_scroll_layout.addRow(cw.LabelWidget(str('Exposure / s')), self.QDoubleSpinBox_cmos_t_exposure)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Standby / s')), self.QDoubleSpinBox_cmos_t_standby)
 
         self.QRadioButton_laser_405 = cw.RadioButtonWidget('405 nm')

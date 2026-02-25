@@ -5,7 +5,8 @@
 
 import os
 import time
-
+import json
+from dataclasses import asdict, is_dataclass
 import numpy as np
 import pandas as pd
 import tifffile as tf
@@ -538,6 +539,9 @@ class CommandExecutor(QObject):
             except Exception as e:
                 self.logg.error(f"DM Error: {e}")
 
+        fnd = os.path.join(self.path, time.strftime("%Y%m%d%H%M") + "_interferometry_close_loop_correction_results.json")
+        with open(fnd, "w") as f:
+            json.dump(result, f, indent=4, cls=NumpyEncoder)
         self.stop_wfs()
 
     def influence_function(self, md):
@@ -660,3 +664,12 @@ class CommandExecutor(QObject):
     def run_influence_function(self, md):
         self.vw.get_dialog(txt="Influence Function")
         self.run_task(lambda: self.influence_function(md))
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if is_dataclass(obj):
+            return asdict(obj)
+        return super().default(obj)

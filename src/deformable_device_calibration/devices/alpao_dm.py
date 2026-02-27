@@ -114,8 +114,12 @@ class DeformableMirror:
             self.zernike, dZdx_orth, dZdy_orth, T = tz.gs_orthogonalize(Z, msk, dZdx, dZdy)
             self.zslopes = np.zeros((2 * self.nlx * self.nly, self.n_zernike))
             for j in range(self.n_zernike):
-                self.zslopes[:self.nlx * self.nly, j] = dZdx_orth[j].flatten()
-                self.zslopes[self.nlx * self.nly:, j] = dZdy_orth[j].flatten()
+                if j == 0:
+                    self.zslopes[:self.nls, j] = dZdx_orth[j].flatten()
+                    self.zslopes[self.nls:, j] = dZdy_orth[j].flatten()
+                else:
+                    self.zslopes[:self.nls, j] = (dZdx_orth[j] / np.std(dZdx_orth[j])).flatten()
+                    self.zslopes[self.nls:, j] = (dZdy_orth[j] / np.std(dZdy_orth[j])).flatten()
         except Exception as e:
             self.logg.error(f"Error Loading DM {self.dm_name} control file: {e}")
 
@@ -142,15 +146,14 @@ class DeformableMirror:
     def get_int_correction(self, measurement):
         delta_v = self.control_matrix_phase @ measurement.ravel()
 
-
     def get_sh_correction(self, measurements, method="phase"):
         gradx, grady = measurements
         measurement = np.concatenate((gradx.reshape(self.nls), grady.reshape(self.nls)))
         if method == 'zonal':
             self.correction.append(list(self.g * np.dot(self.control_matrix_zonal, -measurement)))
-        elif method == 'modal':
-            temp = self.get_zernike_coffs(gradx, grady)
-            self.correction.append(list(self.g * np.dot(self.control_matrix_modal, -temp)))
+        # elif method == 'modal':
+        #     temp = self.get_zernike_coffs(gradx, grady)
+        #     self.correction.append(list(self.g * np.dot(self.control_matrix_modal, -temp)))
         else:
             self.logg.error(f"Invalid AO correction method")
             return
@@ -159,14 +162,15 @@ class DeformableMirror:
 
     def get_zernike_cmd(self, j, a, method="modal"):
         if method == 'modal':
-            a_s = a * ipr.get_eigen_coefficients(self.zslopes[:, j], self.zslopes, 14)
-            return list(np.dot(self.control_matrix_modal, a_s))
-        else:
-            zerphs = a * self.zernike[j].reshape(self.nls)
-            return list(np.dot(self.control_matrix_phase, zerphs))
+            voltages = self.control_matrix_modal[:, j] * a
+            return voltages.tolist()
+        if method == 'zonal':
+            target = self.zslopes[:, j] * a
+            voltages = self.control_matrix_zonal @ target
+            return voltages.tolist()
 
     def get_zernike_coffs(self, gdx, gdy):
-        return ipr.get_eigen_coefficients(np.concatenate((gdx.flatten(), gdy.flatten())), self.zslopes, 14)
+        return ipr.get_eigen_coefficients(np.concatenate((gdx.flatten(), gdy.flatten())), self.zslopes, int(self.n_zernike * 0.9))
 
     @staticmethod
     def cmd_add(cmd_0, cmd_1):

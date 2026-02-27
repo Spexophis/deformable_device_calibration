@@ -64,6 +64,7 @@ class CommandExecutor(QObject):
         self.ctrl_panel.Signal_wf_save.connect(self.save_img_wf)
         # AO
         self.ctrl_panel.Signal_influence_function.connect(self.run_influence_function)
+        self.ctrl_panel.Signal_dm_flatten.connect(self.run_dm_flatten)
         self.ctrl_panel.Signal_img_wf_correct.connect(self.run_close_loop_iteration)
         self.ctrl_panel.Signal_sensor_iteration.connect(self.run_wfs_iteration)
         self.sig_plt.connect(self.plot_curve)
@@ -92,25 +93,6 @@ class CommandExecutor(QObject):
                 self.devs.laser.laser_off(laser)
             except Exception as e:
                 self.logg.error(f"Cobolt Laser Error: {e}")
-
-    def set_lasers(self, lasers):
-        pws = self.ctrl_panel.get_cobolt_laser_power("all")
-        ln = []
-        pw = []
-        for ls in lasers:
-            ln.append(self.laser_lists[ls])
-            pw.append(pws[ls])
-        try:
-            self.devs.laser.set_modulation_mode(ln, pw)
-            self.devs.laser.laser_on(ln)
-        except Exception as e:
-            self.logg.error(f"Cobolt Laser Error: {e}")
-
-    def lasers_off(self):
-        try:
-            self.devs.laser.laser_off("all")
-        except Exception as e:
-            self.logg.error(f"Cobolt Laser Error: {e}")
 
     def set_camera_roi(self):
         try:
@@ -476,7 +458,7 @@ class CommandExecutor(QObject):
     @pyqtSlot(str)
     def run_wfs_iteration(self, md):
         self.vw.get_dialog(txt="WFS Iteration")
-        self.run_task(lambda: self.dm_flatten(md))
+        self.run_task(lambda: self.wfs_iteration())
 
     def dm_flatten(self, md):
         """
@@ -543,6 +525,11 @@ class CommandExecutor(QObject):
         with open(fnd, "w") as f:
             json.dump(result, f, indent=4, cls=NumpyEncoder)
         self.stop_wfs()
+
+    @pyqtSlot(str)
+    def run_dm_flatten(self, md):
+        self.vw.get_dialog(txt="DM Flatten")
+        self.run_task(lambda: self.dm_flatten(md))
 
     def influence_function(self, md):
         if md == "Interferometry":
@@ -621,29 +608,37 @@ class CommandExecutor(QObject):
             self.logg.error(f'Error creating influence function directory: {er}')
             return
         try:
-            amps = np.arange(-0.2, 0.201, 0.01)
+            stp = 0.1
+            amps = [-stp, stp]
             self.devs.camera.start_live()
-            time.sleep(0.032)
+            time.sleep(2)
             for i in range(self.devs.dfm.n_actuator):
 
                 shimg = []
                 self.vw.dialog_text.setText(f"actuator {i}")
                 values = [0.] * self.devs.dfm.n_actuator
                 self.devs.dfm.set_dm(values)
-                time.sleep(0.4)
-                temp = self.devs.camera.get_buffered_images()
-                temp = np.average(temp, axis=0)
+                time.sleep(0.2)
+                temp = []
+                for _ in range(8):
+                    time.sleep(0.032)
+                    temp.append(self.devs.camera.get_last_image())
+                temp = np.average(np.array(temp), axis=0)
                 shimg.append(temp)
 
                 for a in amps:
+                    values = [0.] * self.devs.dfm.n_actuator
                     values[i] = a
                     self.devs.dfm.set_dm(values)
-                    time.sleep(0.4)
-                    temp = self.devs.camera.get_buffered_images()
-                    temp = np.average(temp, axis=0)
+                    time.sleep(0.2)
+                    temp = []
+                    for _ in range(8):
+                        time.sleep(0.032)
+                        temp.append(self.devs.camera.get_last_image())
+                    temp = np.average(np.array(temp), axis=0)
                     shimg.append(temp)
 
-                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(0.01) + '_range_' + str(2) + '.tif',
+                tf.imwrite(fd + r'/' + 'actuator_' + str(i) + '_step_' + str(stp) + '.tif',
                            np.asarray(shimg))
         except Exception as e:
             self.logg.error(f"Error running influence function: {e}")

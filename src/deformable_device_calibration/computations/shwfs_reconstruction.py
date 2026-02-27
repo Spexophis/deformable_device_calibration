@@ -25,15 +25,15 @@ class WavefrontSensing:
 
     def __init__(self, logg=None):
         self.logg = logg or logger.setup_logging()
-        self.n_lenslets_x = 26
-        self.n_lenslets_y = 26
+        self.n_lenslets_x = 28
+        self.n_lenslets_y = 28
         self.n_lenslets = self.n_lenslets_x * self.n_lenslets_y
-        self.x_center_base = 816
-        self.y_center_base = 827
-        self.x_center_offset = 816
-        self.y_center_offset = 825
-        self.lenslet_spacing = 43  # spacing between each lenslet
-        self.hsp = 16  # size of subimage is 2 * hsp
+        self.x_center_base = 761
+        self.y_center_base = 769
+        self.x_center_offset = 761
+        self.y_center_offset = 769
+        self.lenslet_spacing = 44  # spacing between each lenslet
+        self.hsp = 32  # size of subimage is 2 * hsp
         self.bg = 0.1
         self.pixel_size = 3.45e-3  # mm
         self.calfactor = (self.pixel_size / 5.2) * 150  # pixel size * focalLength * pitch
@@ -116,8 +116,10 @@ class WavefrontSensing:
         left_base = self.x_center_base - rx * self.lenslet_spacing
         bot_offset = self.y_center_offset - ry * self.lenslet_spacing
         left_offset = self.x_center_offset - rx * self.lenslet_spacing
-        base = self._sub_back(self.ref, self.bg)
-        offset = self._sub_back(self.meas, self.bg)
+        # base = self._sub_back(self.ref, self.bg)
+        # offset = self._sub_back(self.meas, self.bg)
+        base = self.ref
+        offset = self.meas
         self.im = np.zeros((2, 2 * self.hsp * ny, 2 * self.hsp * nx))
         gradx = np.zeros((ny, nx))
         grady = np.zeros((ny, nx))
@@ -358,7 +360,6 @@ class WavefrontSensing:
         n_actuators, amp = dm.n_actuator, dm.amp
         dm.nly, dm.nlx = self.n_lenslets_y, self.n_lenslets_x
         dm.nls = self.n_lenslets_y * self.n_lenslets_x
-        influence_matrix_phase = np.zeros((self.n_lenslets, n_actuators))
         wfs_phase = np.zeros((n_actuators, self.n_lenslets_y, self.n_lenslets_x))
         influence_matrix_zonal = np.zeros((2 * self.n_lenslets, n_actuators))
         influence_matrix_modal = np.zeros((dm.n_zernike, n_actuators))
@@ -375,9 +376,8 @@ class WavefrontSensing:
                 self.ref = data_stack[0]
                 for i in range(1, n):
                     self.meas = data_stack[i]
-                    gdx[i], gdy[i] = self.get_gradient_xy()
-                    wf[i] = self.gradient_to_wavefront(gdx[i], gdy[i])
-                # interaction_matrix =
+                    gdx[i - 1], gdy[i - 1] = self.get_gradient_xy()
+                    wf[i - 1] = self.gradient_to_wavefront(gdx[i - 1], gdy[i - 1])
                 if "msk" not in locals():
                     image = np.sum(gdx, axis=0)
                     msk = image != 0
@@ -385,36 +385,25 @@ class WavefrontSensing:
                     dm.zernike, dZdx_orth, dZdy_orth, T = tz.gs_orthogonalize(Z, msk, dZdx, dZdy)
                     dm.zslopes = np.zeros((2 * dm.nls, dm.n_zernike))
                     for j in range(dm.n_zernike):
-                        dm.zslopes[:self.n_lenslets_x * self.n_lenslets_y, j] = dZdx_orth[j].flatten()
-                        dm.zslopes[self.n_lenslets_x * self.n_lenslets_y:, j] = dZdy_orth[j].flatten()
-                # phase
-                mn = wfp.sum() / msk.sum()
-                wfp = msk * (wfp - mn)
-                mn = wfn.sum() / msk.sum()
-                wfn = msk * (wfn - mn)
-                wfg = (wfp - wfn) / (2 * amp)
-                wfs_phase[ind] = wfg
-                influence_matrix_phase[:, ind] = wfg.reshape(self.n_lenslets)
+                        if j == 0:
+                            dm.zslopes[:self.n_lenslets_x * self.n_lenslets_y, j] = dZdx_orth[j].flatten()
+                            dm.zslopes[self.n_lenslets_x * self.n_lenslets_y:, j] = dZdy_orth[j].flatten()
+                        else:
+                            dm.zslopes[:self.n_lenslets_x * self.n_lenslets_y, j] = (dZdx_orth[j] / np.std(dZdx_orth[j])).flatten()
+                            dm.zslopes[self.n_lenslets_x * self.n_lenslets_y:, j] = (dZdy_orth[j] / np.std(dZdy_orth[j])).flatten()
+                wf[-1] = msk * (wf[-1] - wf[-1].sum() / msk.sum())
+                wf[0] = msk * (wf[0] - wf[0].sum() / msk.sum())
+                wfs_phase[ind] = (wf[-1] - wf[0]) / (2 * amp)
                 # zonal
-                influence_matrix_zonal[:self.n_lenslets, ind] = ((gdxp - gdxn) / (2 * amp)).reshape(self.n_lenslets)
-                influence_matrix_zonal[self.n_lenslets:, ind] = ((gdyp - gdyn) / (2 * amp)).reshape(self.n_lenslets)
-                # modal
-                a1 = ipr.get_eigen_coefficients(np.concatenate((gdxp.flatten(), gdyp.flatten())), dm.zslopes, 32)
-                a2 = ipr.get_eigen_coefficients(np.concatenate((gdxn.flatten(), gdyn.flatten())), dm.zslopes, 32)
-                influence_matrix_modal[:, ind] = ((a1 - a2) / (2 * amp)).flatten()
-        control_matrix_phase = ipr.pseudo_inverse(influence_matrix_phase, n=32)
-        control_matrix_zonal = ipr.pseudo_inverse(influence_matrix_zonal, n=32)
-        control_matrix_modal = ipr.pseudo_inverse(influence_matrix_modal, n=32)
+                influence_matrix_zonal[:self.n_lenslets, ind] = ((gdx[-1] - gdx[0]) / (2 * amp)).reshape(self.n_lenslets)
+                influence_matrix_zonal[self.n_lenslets:, ind] = ((gdy[-1] - gdy[0]) / (2 * amp)).reshape(self.n_lenslets)
+        control_matrix_zonal = ipr.pseudo_inverse(influence_matrix_zonal, condition_limit=50)
+        control_matrix_modal = control_matrix_zonal @ dm.zslopes
+
         if sv is not None:
             fd = sv["Adaptive Optics"]["Deformable Mirror"][dm.dm_name]["Calibration File Folder"]
             t = time.strftime("%Y_%m_%d_%H_%M")
-            fn = os.path.join(fd, f"influence_function_phase_{t}.tif")
-            tf.imwrite(fn, influence_matrix_phase)
-            fn = os.path.join(fd, f"control_matrix_phase_{t}.tif")
-            tf.imwrite(fn, control_matrix_phase)
-            dm.control_matrix_phase = control_matrix_phase
-            sv["Adaptive Optics"]["Deformable Mirror"][dm.dm_name]["Phase Control Matrix"] = fn
-            fn = os.path.join(fd, f"influence_function_images_{t}.tif")
+            fn = os.path.join(fd, f"influence_function_sh_images_{t}.tif")
             tf.imwrite(fn, wfs_phase)
             sv["Adaptive Optics"]["Deformable Mirror"][dm.dm_name]["Influence Function Images"] = fn
             fn = os.path.join(fd, f"influence_function_zonal_{t}.tif")

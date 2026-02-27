@@ -96,16 +96,25 @@ def valley_find(x, y):
 #  Matrix decomposition
 # ══════════════════════════════════════════════════════════════════════
 
-def pseudo_inverse(influence_matrix, n_modes_kept=64):
-    U, sv, Vt = np.linalg.svd(influence_matrix, full_matrices=False)
-    sv_inv = np.zeros_like(sv)
-    sv_inv[:n_modes_kept] = 1.0 / sv[:n_modes_kept]
-    C_inv = (Vt[:n_modes_kept].T * sv_inv[:n_modes_kept]) @ U[:, :n_modes_kept].T
+def pseudo_inverse(in_matrix, n_modes_kept=None, condition_limit=None):
+    if n_modes_kept is None and condition_limit is None:
+        raise ValueError("Either n_modes_kept or condition_limit must be provided.")
+    if n_modes_kept is not None and condition_limit is not None:
+        raise ValueError("Only one of n_modes_kept or condition_limit can be provided, not both.")
+    if n_modes_kept is not None:
+        U, sv, Vt = np.linalg.svd(in_matrix, full_matrices=False)
+        sv_inv = np.zeros_like(sv)
+        sv_inv[:n_modes_kept] = 1.0 / sv[:n_modes_kept]
+        C_inv = (Vt[:n_modes_kept].T * sv_inv[:n_modes_kept]) @ U[:, :n_modes_kept].T
+    if condition_limit is not None:
+        U, s, Vt = np.linalg.svd(in_matrix, full_matrices=False)
+        s_inv = np.where(s / s[0] > 1 / condition_limit, 1 / s, 0.0)
+        C_inv = Vt.T @ np.diag(s_inv) @ U.T
     return C_inv
 
 
 def get_eigen_coefficients(mta, mtb, ng=32):
-    mp = pseudo_inverse(mtb, n_modes_kept=ng)
+    mp = pseudo_inverse(mtb, condition_limit=50)
     return np.matmul(mp, mta)
 
 

@@ -17,6 +17,7 @@ class ControlPanel(QWidget):
     Signal_img_wfr = pyqtSignal(bool, str)
     Signal_wf_save = pyqtSignal(str)
     Signal_influence_function = pyqtSignal(str)
+    Signal_dm_flatten = pyqtSignal(str)
     Signal_img_wfc = pyqtSignal(bool, str)
     Signal_img_wf_correct = pyqtSignal(str)
     Signal_sensor_iteration = pyqtSignal(str)
@@ -73,16 +74,21 @@ class ControlPanel(QWidget):
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Standby / s')), self.QDoubleSpinBox_cmos_t_standby)
 
         self.QRadioButton_laser_405 = cw.RadioButtonWidget('405 nm')
-        self.QDoubleSpinBox_laser_power_405 = cw.DoubleSpinBoxWidget(0, 200, 0.1, 1, 0.0)
+        self.QDoubleSpinBox_laser_power_405 = cw.DoubleSpinBoxWidget(0, 100, 0.1, 1, 0.0)
         self.QPushButton_laser_405 = cw.PushButtonWidget('ON', checkable=True)
-        self.QRadioButton_laser_488 = cw.RadioButtonWidget('488 nm')
-        self.QDoubleSpinBox_laser_power_488 = cw.DoubleSpinBoxWidget(0, 200, 0.1, 1, 0.0)
-        self.QPushButton_laser_488 = cw.PushButtonWidget('ON', checkable=True)
+        self.QRadioButton_laser_488_0 = cw.RadioButtonWidget('488 nm #0')
+        self.QDoubleSpinBox_laser_power_488_0 = cw.DoubleSpinBoxWidget(0, 100, 0.1, 1, 0.0)
+        self.QPushButton_laser_488_0 = cw.PushButtonWidget('ON', checkable=True)
+        self.QRadioButton_laser_488_1 = cw.RadioButtonWidget('488 nm #1')
+        self.QDoubleSpinBox_laser_power_488_1 = cw.DoubleSpinBoxWidget(0, 100, 0.1, 1, 0.0)
+        self.QPushButton_laser_488_1 = cw.PushButtonWidget('ON', checkable=True)
 
         laser_scroll_layout.addRow(self.QRadioButton_laser_405, self.QDoubleSpinBox_laser_power_405)
         laser_scroll_layout.addRow(self.QPushButton_laser_405)
-        laser_scroll_layout.addRow(self.QRadioButton_laser_488, self.QDoubleSpinBox_laser_power_488)
-        laser_scroll_layout.addRow(self.QPushButton_laser_488)
+        laser_scroll_layout.addRow(self.QRadioButton_laser_488_0, self.QDoubleSpinBox_laser_power_488_0)
+        laser_scroll_layout.addRow(self.QPushButton_laser_488_0)
+        laser_scroll_layout.addRow(self.QRadioButton_laser_488_1, self.QDoubleSpinBox_laser_power_488_1)
+        laser_scroll_layout.addRow(self.QPushButton_laser_488_1)
 
         group_layout = QHBoxLayout(group)
         group_layout.addWidget(cmos_scroll_area)
@@ -99,7 +105,8 @@ class ControlPanel(QWidget):
         self.QPushButton_run_img_wfr = cw.PushButtonWidget('Run WFR', checkable=True)
         self.QPushButton_run_img_wfc = cw.PushButtonWidget('ComputeWF', checkable=True)
         self.QPushButton_save_img_wf = cw.PushButtonWidget('Save WF', enable=True)
-        self.QPushButton_influence_function_laser = cw.PushButtonWidget('Inf Func')
+        self.QPushButton_influence_function = cw.PushButtonWidget('Inf Func')
+        self.QPushButton_dm_flatten = cw.PushButtonWidget('Flat DM')
 
         acq_scroll_layout.addWidget(cw.LabelWidget(str('WFS')), 0, 0, 1, 1)
         acq_scroll_layout.addWidget(self.QComboBox_wfs_selection, 0, 1, 1, 2)
@@ -107,7 +114,8 @@ class ControlPanel(QWidget):
         acq_scroll_layout.addWidget(self.QPushButton_run_img_wfr, 1, 1, 1, 1)
         acq_scroll_layout.addWidget(self.QPushButton_run_img_wfc, 1, 2, 1, 1)
         acq_scroll_layout.addWidget(self.QPushButton_save_img_wf, 2, 0, 1, 1)
-        acq_scroll_layout.addWidget(self.QPushButton_influence_function_laser, 2, 1, 1, 1)
+        acq_scroll_layout.addWidget(self.QPushButton_influence_function, 2, 1, 1, 1)
+        acq_scroll_layout.addWidget(self.QPushButton_dm_flatten, 2, 2, 1, 1)
 
         group_layout = QVBoxLayout(group)
         group_layout.addWidget(acq_scroll_area)
@@ -133,13 +141,15 @@ class ControlPanel(QWidget):
         return group
 
     def _set_signal_connections(self):
-        self.QPushButton_laser_488.clicked.connect(self.set_laser_488)
+        self.QPushButton_laser_488_0.clicked.connect(self.set_laser_488_0)
+        self.QPushButton_laser_488_1.clicked.connect(self.set_laser_488_1)
         self.QPushButton_laser_405.clicked.connect(self.set_laser_405)
         self.QPushButton_run_img_wfs.clicked.connect(self.run_img_wfs)
         self.QPushButton_run_img_wfr.clicked.connect(self.run_img_wfr)
         self.QPushButton_run_img_wfc.clicked.connect(self.run_img_wfc)
         self.QPushButton_save_img_wf.clicked.connect(self.save_img_wf)
-        self.QPushButton_influence_function_laser.clicked.connect(self.run_influence_function)
+        self.QPushButton_influence_function.clicked.connect(self.run_influence_function)
+        self.QPushButton_dm_flatten.clicked.connect(self.run_dm_flatten)
         self.QPushButton_cl_correction.clicked.connect(self.run_close_loop_correction)
         self.QPushButton_it_correction.clicked.connect(self.run_sensor_iteration)
         
@@ -155,31 +165,19 @@ class ControlPanel(QWidget):
         return self.QDoubleSpinBox_cmos_t_exposure.value()
 
     @pyqtSlot(bool)
-    def set_laser_488(self, checked: bool):
-        power = self.QDoubleSpinBox_laser_power_488.value()
-        self.Signal_set_laser.emit(["488"], checked, power)
-
-    @pyqtSlot(bool)
     def set_laser_405(self, checked: bool):
         power = self.QDoubleSpinBox_laser_power_405.value()
         self.Signal_set_laser.emit(["405"], checked, power)
 
-    def get_lasers(self):
-        lasers = []
-        if self.QRadioButton_laser_405.isChecked():
-            lasers.append(0)
-        if self.QRadioButton_laser_488.isChecked():
-            lasers.append(1)
-        return lasers
+    @pyqtSlot(bool)
+    def set_laser_488_0(self, checked: bool):
+        power = self.QDoubleSpinBox_laser_power_488_0.value()
+        self.Signal_set_laser.emit(["488_0"], checked, power)
 
-    def get_cobolt_laser_power(self, laser):
-        if laser == "405":
-            return [self.QDoubleSpinBox_laser_power_405.value()]
-        if laser == "488":
-            return [self.QDoubleSpinBox_laser_power_488.value()]
-        if "all" == laser:
-            return [self.QDoubleSpinBox_laser_power_405.value(), self.QDoubleSpinBox_laser_power_488.value()]
-        return None
+    @pyqtSlot(bool)
+    def set_laser_488_1(self, checked: bool):
+        power = self.QDoubleSpinBox_laser_power_488_1.value()
+        self.Signal_set_laser.emit(["488_1"], checked, power)
 
     @pyqtSlot()
     def run_img_wfs(self):
@@ -214,6 +212,11 @@ class ControlPanel(QWidget):
     def run_influence_function(self):
         md = self.QComboBox_wfs_selection.currentText()
         self.Signal_influence_function.emit(md)
+
+    @pyqtSlot()
+    def run_dm_flatten(self):
+        md = self.QComboBox_wfs_selection.currentText()
+        self.Signal_dm_flatten.emit(md)
 
     @pyqtSlot()
     def run_close_loop_correction(self):

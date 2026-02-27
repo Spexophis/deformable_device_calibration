@@ -160,7 +160,7 @@ class WavefrontSensing:
                 pp = ar.process_push_pull(frames_plus, frames_minus, amp, self.fy_center, self.fx_center, self.half_nx)
                 wfs_phase[ind] = msk * pp["influence"]
                 influence_matrix_phase[:, ind] = wfs_phase[ind].ravel()
-        control_matrix_phase = ipr.pseudo_inverse(influence_matrix_phase, n_modes_kept=72)
+        control_matrix_phase = ipr.pseudo_inverse(influence_matrix_phase, condition_limit=50)
         if sv is not None:
             fd = sv["Adaptive Optics"]["Deformable Mirror"][dm.dm_name]["Calibration File Folder"]
             t = time.strftime("%Y_%m_%d_%H_%M")

@@ -168,6 +168,7 @@ class DeformableMirror:
             target = self.zslopes[:, j] * a
             voltages = self.control_matrix_zonal @ target
             return voltages.tolist()
+        return None
 
     def get_zernike_coffs(self, gdx, gdy):
         return ipr.get_eigen_coefficients(np.concatenate((gdx.flatten(), gdy.flatten())), self.zslopes, int(self.n_zernike * 0.9))

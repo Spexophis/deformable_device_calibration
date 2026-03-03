@@ -61,7 +61,7 @@ class ControlPanel(QWidget):
         self.QDoubleSpinBox_cmos_t_exposure = cw.DoubleSpinBoxWidget(0, 1, 0.01, 4, 0.001)
         self.QDoubleSpinBox_cmos_t_standby = cw.DoubleSpinBoxWidget(0, 10, 0.001, 4, 0.050)
 
-        cmos_scroll_layout.addRow(cw.LabelWidget(str('CMOS')))
+        cmos_scroll_layout.addRow(cw.LabelWidget(str('Camera')))
         cmos_scroll_layout.addRow(cw.FrameWidget())
         cmos_scroll_layout.addRow(cw.LabelWidget(str('X')), self.QSpinBox_cmos_coordinate_x)
         cmos_scroll_layout.addRow(cw.LabelWidget(str('Y')), self.QSpinBox_cmos_coordinate_y)
@@ -83,6 +83,8 @@ class ControlPanel(QWidget):
         self.QDoubleSpinBox_laser_power_488_1 = cw.DoubleSpinBoxWidget(0, 100, 0.1, 1, 0.0)
         self.QPushButton_laser_488_1 = cw.PushButtonWidget('ON', checkable=True)
 
+        laser_scroll_layout.addRow(cw.LabelWidget(str('Laser')))
+        laser_scroll_layout.addRow(cw.FrameWidget())
         laser_scroll_layout.addRow(self.QRadioButton_laser_405, self.QDoubleSpinBox_laser_power_405)
         laser_scroll_layout.addRow(self.QPushButton_laser_405)
         laser_scroll_layout.addRow(self.QRadioButton_laser_488_0, self.QDoubleSpinBox_laser_power_488_0)

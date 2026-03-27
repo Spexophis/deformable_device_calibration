@@ -74,23 +74,31 @@ class DeformableMirror:
             return None, None
 
     def _configure_dm(self):
-        self.dm_cmd = [[0.] * self.n_actuator]
+        self.dm_cmd = []
         try:
-            self.control_matrix_phase = tf.imread(self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Phase Control Matrix"])
+            self.control_matrix_phase = tf.imread(
+                self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Phase Control Matrix"])
         except Exception as e:
             self.logg.error(f"Error Loading DM {self.dm_name} control file: {e}")
         try:
-            self.control_matrix_zonal = tf.imread(self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Zonal Control Matrix"])
+            self.control_matrix_zonal = tf.imread(
+                self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Zonal Control Matrix"])
         except Exception as e:
             self.logg.error(f"Error Loading DM {self.dm_name} control file: {e}")
         try:
-            self.control_matrix_modal = tf.imread(self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Modal Control Matrix"])
+            self.control_matrix_modal = tf.imread(
+                self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Modal Control Matrix"])
         except Exception as e:
             self.logg.error(f"Error Loading DM {self.dm_name} control file: {e}")
         try:
             self.ctrl_calib = self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Control Calibration"]
         except Exception as e:
             self.logg.error(f"Error Loading DM {self.dm_name} control file: {e}")
+        try:
+            self.read_cmd(self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Mirror Flat"])
+        except Exception as e:
+            self.dm_cmd = [[0.] * self.n_actuator]
+            self.logg.error(f"Error Loading DM {self.dm_name} Mirror Flat: {e}\n")
         try:
             self.read_cmd(self.config["Adaptive Optics"]["Deformable Mirror"][self.dm_name]["Initial Flat"])
             self.current_cmd = 1
